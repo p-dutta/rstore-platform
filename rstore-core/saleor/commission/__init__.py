@@ -85,4 +85,3 @@ class CommissionStatus:
         for item in cls.CHOICES:
             keys.append(item[0])
         return keys
-

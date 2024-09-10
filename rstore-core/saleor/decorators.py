@@ -1,70 +1,58 @@
-import functools
-import time
+from enum import Enum
+from functools import wraps
+from typing import Iterable, Union
 
-from django.contrib.auth.models import Group
-from django.db import reset_queries, connection
-from django.http import JsonResponse
+from graphql_jwt import exceptions
+from graphql_jwt.decorators import context
 
-from saleor.account.utils import authorize
-from saleor.notification import NotificationType
-from saleor.notification.models import Notification
+from ..core.permissions import AccountPermissions
 
 
-# def notify(type):
-#     def notify_decorator(function):
-#         @functools.wraps(function)
-#         def wrapper(*args, **kwargs):
-#             if type == NotificationType.PARTNER_ADDED:
-#                 function(*args, **kwargs)
-#                 notify_partner_added()
-#
-#         return wrapper
-#
-#     return notify_decorator
-#
-#
-# def notify_partner_added():
-#     agent = Group.objects.get(name='agent')
-#     groups = [agent]
-#     path = "/partners/"
-#     Notification.objects.create_notification(type=NotificationType.PARTNER_ADDED, path=path,
-#                                              groups=groups)
+def account_passes_test(test_func):
+    """Determine if user/app has permission to access to content."""
+
+    def decorator(f):
+        @wraps(f)
+        @context(f)
+        def wrapper(context, *args, **kwargs):
+            if test_func(context):
+                return f(*args, **kwargs)
+            raise exceptions.PermissionDenied()
+
+        return wrapper
+
+    return decorator
 
 
-def logged_in_required(function):
-    def wrap(request, *args, **kwargs):
-        # token = request.headers.get("Authorization")
-        token = request.GET.get("token")
-        if token:
-            token = f"JWT {token}"
-            delattr(request, "user")
-            authorize(request, token)
-            if request.user.is_authenticated:
-                return function(request, *args, **kwargs)
-            else:
-                return JsonResponse({"message": "Invalid access token."}, status=401)
+def _permission_required(perms: Iterable[Enum], context):
+    if context.user.has_perms(perms):
+        return True
+    app = getattr(context, "app", None)
+    if app:
+        # for now MANAGE_STAFF permission for app is not supported
+        if AccountPermissions.MANAGE_STAFF in perms:
+            return False
+        return app.has_perms(perms)
+    return False
+
+
+def permission_required(perm: Union[Enum, Iterable[Enum]]):
+    def check_perms(context):
+        if isinstance(perm, Enum):
+            perms = (perm,)
         else:
-            return JsonResponse({"message": "Token not found."}, status=404)
+            perms = perm
+        return _permission_required(perms, context)
 
-    return wrap
+    return account_passes_test(check_perms)
 
 
-def query_debugger(func):
-    @functools.wraps(func)
-    def inner_func(*args, **kwargs):
-        reset_queries()
+def one_of_permissions_required(perms: Iterable[Enum]):
+    def check_perms(context):
+        for perm in perms:
+            has_perm = _permission_required((perm,), context)
+            if has_perm:
+                return True
+        return False
 
-        start_queries = len(connection.queries)
-
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        end = time.perf_counter()
-
-        end_queries = len(connection.queries)
-
-        print(f"Function : {func.__name__}")
-        print(f"Number of Queries : {end_queries - start_queries}")
-        print(f"Finished in : {(end - start):.2f}s")
-        return result
-
-    return inner_func
+    return account_passes_test(check_perms)
