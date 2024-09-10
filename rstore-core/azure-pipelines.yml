@@ -1,0 +1,67 @@
+trigger:
+- development
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- script: echo Hello, rStore!
+  displayName: 'Starting Job'
+
+- task: SSH@0
+  displayName: 'Setting ENV'
+  inputs:
+    sshEndpoint: 'lightsail'
+    runOptions: 'commands'
+    commands: './set-api-env.sh'
+    interactiveSession: true
+    readyTimeout: '20000'
+
+- task: SSH@0
+  displayName: 'Deploy'
+  inputs:
+    sshEndpoint: 'lightsail'
+    runOptions: 'commands'
+    commands: './deploy-api.sh'
+    interactiveSession: true
+    readyTimeout: '20000'
+
+- task: SSH@0
+  displayName: 'Reset'
+  condition: contains(variables['Build.SourceVersionMessage'], '[reset]')
+  inputs:
+    sshEndpoint: 'lightsail'
+    runOptions: 'commands'
+    commands: './deploy-api-reset.sh'
+    interactiveSession: true
+    readyTimeout: '20000'
+
+- task: SSH@0
+  displayName: 'Migrate'
+  condition: contains(variables['Build.SourceVersionMessage'], '[migrate]')
+  inputs:
+    sshEndpoint: 'lightsail'
+    runOptions: 'commands'
+    commands: './deploy-api-migrate.sh'
+    interactiveSession: true
+    readyTimeout: '20000'
+
+- task: SSH@0
+  displayName: 'Store'
+  condition: contains(variables['Build.SourceVersionMessage'], '[store]')
+  inputs:
+    sshEndpoint: 'lightsail'
+    runOptions: 'commands'
+    commands: './deploy-api-store.sh'
+    interactiveSession: true
+    readyTimeout: '20000'
+
+- task: SSH@0
+  displayName: 'Populate'
+  condition: contains(variables['Build.SourceVersionMessage'], '[populate]')
+  inputs:
+    sshEndpoint: 'lightsail'
+    runOptions: 'commands'
+    commands: './deploy-api-populate.sh'
+    interactiveSession: true
+    readyTimeout: '20000'
